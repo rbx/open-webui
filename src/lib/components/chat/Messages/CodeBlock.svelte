@@ -214,22 +214,31 @@
 		}
 	};
 
+	const detectRequiredPackages = (code) => {
+		// Define package detection patterns to avoid false positives
+		const packagePatterns = {
+			'requests': /\b(?:import\s+requests|from\s+requests\b)/,
+			'beautifulsoup4': /\b(?:import\s+bs4|from\s+bs4\b|BeautifulSoup)/,
+			'numpy': /\b(?:import\s+numpy|from\s+numpy|import\s+numpy\s+as\s+np)\b/,
+			'pandas': /\b(?:import\s+pandas|from\s+pandas|import\s+pandas\s+as\s+pd)\b/,
+			'scikit-learn': /\b(?:import\s+sklearn|from\s+sklearn|from\s+sklearn\.)/,
+			'scipy': /\b(?:import\s+scipy|from\s+scipy)\b/,
+			'regex': /\b(?:import\s+re\b|from\s+re\b)/,
+			'seaborn': /\b(?:import\s+seaborn|from\s+seaborn|import\s+seaborn\s+as\s+sns)\b/,
+			'sympy': /\b(?:import\s+sympy|from\s+sympy)\b/,
+			'tiktoken': /\b(?:import\s+tiktoken|from\s+tiktoken)\b/,
+			'matplotlib': /\b(?:import\s+matplotlib|from\s+matplotlib|matplotlib\.pyplot|plt\.)/,
+			'pytz': /\b(?:import\s+pytz|from\s+pytz)\b/,
+			'openai': /\b(?:import\s+openai|from\s+openai)\b/
+		};
+
+		return Object.entries(packagePatterns)
+			.filter(([pkg, pattern]) => pattern.test(code))
+			.map(([pkg]) => pkg);
+	};
+
 	const executePythonAsWorker = async (code) => {
-		let packages = [
-			code.includes('requests') ? 'requests' : null,
-			code.includes('bs4') ? 'beautifulsoup4' : null,
-			code.includes('numpy') ? 'numpy' : null,
-			code.includes('pandas') ? 'pandas' : null,
-			code.includes('sklearn') ? 'scikit-learn' : null,
-			code.includes('scipy') ? 'scipy' : null,
-			code.includes('re') ? 'regex' : null,
-			code.includes('seaborn') ? 'seaborn' : null,
-			code.includes('sympy') ? 'sympy' : null,
-			code.includes('tiktoken') ? 'tiktoken' : null,
-			code.includes('matplotlib') ? 'matplotlib' : null,
-			code.includes('pytz') ? 'pytz' : null,
-			code.includes('openai') ? 'openai' : null
-		].filter(Boolean);
+		let packages = detectRequiredPackages(code);
 
 		console.log(packages);
 
