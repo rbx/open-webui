@@ -916,7 +916,7 @@ app.state.config.ENABLE_EVALUATION_ARENA_MODELS = ENABLE_EVALUATION_ARENA_MODELS
 app.state.config.EVALUATION_ARENA_MODELS = EVALUATION_ARENA_MODELS
 
 # Migrate legacy access_control → access_grants on boot
-from open_webui.utils.access_control import migrate_access_control
+from open_webui.utils.access_control import migrate_access_control, get_permission_value
 
 connections = app.state.config.TOOL_SERVER_CONNECTIONS
 if any('access_control' in c.get('config', {}) for c in connections):
@@ -1385,6 +1385,18 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CommitSessionMiddleware)
 app.add_middleware(AuthTokenMiddleware, fastapi_app=app)
 app.add_middleware(WebsocketUpgradeGuardMiddleware)
+
+
+async def _resolve_knowledge_limit(user, permission_key: str, user_permissions: dict):
+    """Return the effective knowledge file limit for a user.
+
+    Admin users get None (unlimited). For regular users, group/default permissions
+    are checked; 0 means unlimited (returns None).
+    """
+    if user is None or user.role == 'admin':
+        return None
+    value = await get_permission_value(user.id, permission_key, user_permissions)
+    return None if (value is None or value == 0) else value
 
 
 app.add_middleware(
@@ -2281,6 +2293,16 @@ async def get_app_config(request: Request):
                         'width': app.state.config.FILE_IMAGE_COMPRESSION_WIDTH,
                         'height': app.state.config.FILE_IMAGE_COMPRESSION_HEIGHT,
                     },
+                },
+                'knowledge': {
+                    'max_size': await _resolve_knowledge_limit(
+                        user, 'workspace.knowledge_max_size',
+                        app.state.config.USER_PERMISSIONS,
+                    ),
+                    'max_count': await _resolve_knowledge_limit(
+                        user, 'workspace.knowledge_max_count',
+                        app.state.config.USER_PERMISSIONS,
+                    ),
                 },
                 'permissions': {**app.state.config.USER_PERMISSIONS},
                 'google_drive': {

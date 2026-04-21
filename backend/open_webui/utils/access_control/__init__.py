@@ -42,10 +42,21 @@ async def get_permissions(
     def combine_permissions(permissions: dict[str, Any], group_permissions: dict[str, Any]) -> dict[str, Any]:
         """Combine permissions from multiple groups by taking the most permissive value."""
         for key, value in group_permissions.items():
+            if value is None:
+                continue  # None means "not configured for this group", skip
             if isinstance(value, dict):
                 if key not in permissions:
                     permissions[key] = {}
                 permissions[key] = combine_permissions(permissions[key], value)
+            elif isinstance(value, int) and not isinstance(value, bool):
+                if key not in permissions or permissions[key] is None:
+                    permissions[key] = value
+                elif isinstance(permissions[key], int) and not isinstance(permissions[key], bool):
+                    # 0 = unlimited (most permissive), otherwise take the highest limit
+                    if permissions[key] == 0 or value == 0:
+                        permissions[key] = 0
+                    else:
+                        permissions[key] = max(permissions[key], value)
             else:
                 if key not in permissions:
                     permissions[key] = value
@@ -102,6 +113,53 @@ async def has_permission(
     # Check default permissions afterward if the group permissions don't allow it
     default_permissions = fill_missing_permissions(default_permissions, DEFAULT_USER_PERMISSIONS)
     return get_permission(default_permissions, permission_hierarchy)
+
+
+async def get_permission_value(
+    user_id: str,
+    permission_key: str,
+    default_permissions: dict[str, Any] = {},
+    db: AsyncSession | None = None,
+) -> Any:
+    """
+    Return the raw value of a permission for a user (int, bool, None, etc.).
+
+    For integer-valued permissions across multiple groups the most permissive
+    value is returned: 0 means unlimited (always wins), otherwise the maximum.
+    Returns None when no group or default has a value for the key.
+    """
+
+    def traverse(permissions: dict[str, Any], keys: list[str]) -> Any:
+        for key in keys:
+            if not isinstance(permissions, dict) or key not in permissions:
+                return None
+            permissions = permissions[key]
+        return permissions
+
+    permission_hierarchy = permission_key.split('.')
+    user_groups = await Groups.get_groups_by_member_id(user_id, db=db)
+
+    best: Any = None
+    for group in user_groups:
+        value = traverse(group.permissions or {}, permission_hierarchy)
+        if value is None:
+            continue
+        if isinstance(value, int) and not isinstance(value, bool):
+            if best is None:
+                best = value
+            elif best == 0 or value == 0:
+                best = 0  # 0 = unlimited, always wins
+            else:
+                best = max(best, value)
+        elif value and best is None:
+            best = value
+
+    if best is not None:
+        return best
+
+    # Fall back to default permissions
+    merged = fill_missing_permissions({}, default_permissions)
+    return traverse(merged, permission_hierarchy)
 
 
 async def has_access(

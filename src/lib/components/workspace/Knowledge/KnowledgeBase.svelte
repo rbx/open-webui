@@ -281,17 +281,19 @@
 			return null;
 		}
 
-		if (
-			($config?.file?.max_size ?? null) !== null &&
-			file.size > ($config?.file?.max_size ?? 0) * 1024 * 1024
-		) {
-			console.log('File exceeds max size limit:', {
-				fileSize: file.size,
-				maxSize: ($config?.file?.max_size ?? 0) * 1024 * 1024
-			});
+		const knowledgeMaxSize = $config?.knowledge?.max_size ?? null;
+		if (knowledgeMaxSize !== null && file.size > knowledgeMaxSize * 1024 * 1024) {
 			toast.error(
-				$i18n.t(`File size should not exceed {{maxSize}} MB.`, {
-					maxSize: $config?.file?.max_size
+				$i18n.t(`File size should not exceed {{maxSize}} MB.`, { maxSize: knowledgeMaxSize })
+			);
+			return;
+		}
+
+		const knowledgeMaxCount = $config?.knowledge?.max_count ?? null;
+		if (knowledgeMaxCount !== null && (fileItemsTotal ?? 0) >= knowledgeMaxCount) {
+			toast.error(
+				$i18n.t(`Knowledge base file limit reached ({{maxCount}} files maximum).`, {
+					maxCount: knowledgeMaxCount
 				})
 			);
 			return;

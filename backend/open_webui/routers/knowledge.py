@@ -30,7 +30,7 @@ from open_webui.storage.provider import Storage
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.utils.auth import get_verified_user, get_admin_user
-from open_webui.utils.access_control import has_permission, filter_allowed_access_grants
+from open_webui.utils.access_control import has_permission, filter_allowed_access_grants, get_permission_value
 from open_webui.models.access_grants import AccessGrants
 
 
@@ -656,6 +656,29 @@ async def add_file_to_knowledge_by_id(
             detail=ERROR_MESSAGES.FILE_NOT_PROCESSED,
         )
 
+    if user.role != 'admin':
+        max_count = await get_permission_value(
+            user.id, 'workspace.knowledge_max_count',
+            request.app.state.config.USER_PERMISSIONS, db=db,
+        )
+        if max_count is not None and max_count != 0:
+            current_count = await Knowledges.get_file_count_by_id(id, db=db)
+            if current_count >= max_count:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f'Knowledge base file limit reached ({max_count} files maximum).',
+                )
+
+        max_size = await get_permission_value(
+            user.id, 'workspace.knowledge_max_size',
+            request.app.state.config.USER_PERMISSIONS, db=db,
+        )
+        if max_size is not None and max_size != 0 and file.meta and file.meta.get('size', 0) > max_size * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'File size exceeds the {max_size} MB limit for knowledge base uploads.',
+            )
+
     # Add content to the vector database
     try:
         await process_file(
@@ -1007,6 +1030,33 @@ async def add_files_to_knowledge_batch(
     log.info(f'files/batch/add - {len(form_data)} files')
     file_ids = [form.file_id for form in form_data]
     files = await Files.get_files_by_ids(file_ids, db=db)
+
+    if user.role != 'admin':
+        max_count = await get_permission_value(
+            user.id, 'workspace.knowledge_max_count',
+            request.app.state.config.USER_PERMISSIONS, db=db,
+        )
+        if max_count is not None and max_count != 0:
+            current_count = await Knowledges.get_file_count_by_id(id, db=db)
+            if current_count + len(files) > max_count:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f'Knowledge base file limit exceeded: adding {len(files)} file(s) would exceed the {max_count} file maximum (currently {current_count}).',
+                )
+
+        max_size = await get_permission_value(
+            user.id, 'workspace.knowledge_max_size',
+            request.app.state.config.USER_PERMISSIONS, db=db,
+        )
+        if max_size is not None and max_size != 0:
+            oversized = [
+                f.filename for f in files if f.meta and f.meta.get('size', 0) > max_size * 1024 * 1024
+            ]
+            if oversized:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f'File(s) exceed the {max_size} MB limit for knowledge base uploads: {", ".join(oversized)}',
+                )
 
     # Verify all requested files were found
     found_ids = {file.id for file in files}
